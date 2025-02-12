@@ -11,10 +11,10 @@ contract FundMe {
 
     uint256 public constant MINIMUM_USD = 5e18;
 
-    address[] public funders;
-    mapping(address => uint256) public addressToAmountFunded;
+    address[] private s_funders;
+    mapping(address => uint256) private s_addressToAmountFunded;
 
-    address public immutable i_owner;
+    address private immutable i_owner;
     AggregatorV3Interface private s_priceFeed;
 
     constructor(address priceFeed) {
@@ -23,15 +23,15 @@ contract FundMe {
     }
 
     function fund() public payable {
-        if (msg.value.getConversionRate(s_priceFeed) > 1e18) {
+        if (msg.value.getConversionRate(s_priceFeed) < MINIMUM_USD) {
             revert FundMe__NotOwner();
         }
         // require(msg.value.getConversionRate() > 1e18, "didn't send enough eth");
         // require(getConversionRate(msg.value) > 1e18, "didn't send enough eth");
 
-        funders.push(msg.sender);
-        addressToAmountFunded[msg.sender] =
-            addressToAmountFunded[msg.sender] +
+        s_funders.push(msg.sender);
+        s_addressToAmountFunded[msg.sender] =
+            s_addressToAmountFunded[msg.sender] +
             msg.value;
     }
 
@@ -43,12 +43,30 @@ contract FundMe {
         _;
     }
 
-    function withdraw() public onlyOnwer {
-        for (uint256 i = 0; i < funders.length; i++) {
-            address funder = funders[i];
-            addressToAmountFunded[funder] = 0;
+    function cheaperWithdraw() public onlyOnwer {
+        uint256 fundersLength = s_funders.length;
+        for (uint256 i = 0; i < fundersLength; i++) {
+            address funder = s_funders[i];
+            s_addressToAmountFunded[funder] = 0;
         }
-        funders = new address[](0);
+        s_funders = new address[](0);
+
+        // call
+        (bool callSuccess /* bytes memory dataReturned */, ) = payable(
+            msg.sender
+        ).call{value: address(this).balance}("");
+        if (!callSuccess) {
+            revert FundMe__NotOwner();
+        }
+        // require(callSuccess, "Call Failed");
+    }
+
+    function withdraw() public onlyOnwer {
+        for (uint256 i = 0; i < s_funders.length; i++) {
+            address funder = s_funders[i];
+            s_addressToAmountFunded[funder] = 0;
+        }
+        s_funders = new address[](0);
 
         // transfer
         // msg.sender ==> type is address
@@ -86,5 +104,21 @@ contract FundMe {
 
     fallback() external payable {
         fund();
+    }
+
+    // View / Pure functions (Getters)
+
+    function getAddressToAmountFunded(
+        address fundingAddress
+    ) external view returns (uint256) {
+        return s_addressToAmountFunded[fundingAddress];
+    }
+
+    function getFunder(uint256 idx) external view returns (address) {
+        return s_funders[idx];
+    }
+
+    function getOwner() external view returns (address) {
+        return i_owner;
     }
 }
